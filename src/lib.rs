@@ -40,7 +40,7 @@ pub enum Error {
     PcapError(String),
 }
 
-fn to_string(ptr: *const ::std::os::raw::c_char) -> Option<String> {
+fn from_c_string(ptr: *const ::std::os::raw::c_char) -> Option<String> {
     if ptr.is_null() {
         None
     } else {
@@ -72,7 +72,7 @@ pub fn pcap_lookupdev() -> Option<String> {
         let mut errbuf = [0i8; raw::PCAP_ERRBUF_SIZE as usize];
         let ptr = errbuf.as_mut_ptr();
         let name = raw::pcap_lookupdev(ptr);
-        to_string(name)
+        from_c_string(name)
     }
 }
 
@@ -93,8 +93,36 @@ pub fn pcap_lookupnet(
                 netmask: Ipv4Addr(*maskp_ptr),
             })
         } else {
-            Err(to_string(err_ptr).unwrap())
+            Err(from_c_string(err_ptr).unwrap())
         }
+    }
+}
+
+pub fn pcap_lib_version() -> Option<String> {
+    unsafe {
+        from_c_string(raw::pcap_lib_version())
+    }
+}
+
+/**
+pub fn pcap_freealldevs(arg1: *mut pcap_if_t) {}
+
+
+
+pub fn bpf_image(
+    arg1: *const bpf_insn,
+    arg2: ::std::os::raw::c_int,
+) -> *mut ::std::os::raw::c_char {}
+
+pub fn bpf_dump(arg1: *const bpf_program, arg2: ::std::os::raw::c_int) {}
+
+pub fn pcap_get_selectable_fd(arg1: *mut pcap_t) -> ::std::os::raw::c_int {}
+**/
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn it_works() {
+        assert_eq!(2 + 2, 4);
     }
 }
 
@@ -362,9 +390,9 @@ pub fn pcap_findalldevs() -> Result<Vec<NetworkDevice>, Error> {
         let mut devices = vec![];
         while !curr_ptr.is_null() {
             let curr = &*curr_ptr;
-            let device = to_string(curr.name).map(|name| NetworkDevice {
+            let device = from_c_string(curr.name).map(|name| NetworkDevice {
                 name,
-                description: to_string(curr.description),
+                description: from_c_string(curr.description),
                 addresses: parse_pcap_addr_t(curr.addresses),
                 flags: curr.flags,
             });
@@ -375,27 +403,5 @@ pub fn pcap_findalldevs() -> Result<Vec<NetworkDevice>, Error> {
         }
         raw::pcap_freealldevs(alldevsp);
         Result::Ok(devices)
-    }
-}
-
-/**
-pub fn pcap_freealldevs(arg1: *mut pcap_if_t) {}
-
-pub fn pcap_lib_version() -> *const ::std::os::raw::c_char {}
-
-pub fn bpf_image(
-    arg1: *const bpf_insn,
-    arg2: ::std::os::raw::c_int,
-) -> *mut ::std::os::raw::c_char {}
-
-pub fn bpf_dump(arg1: *const bpf_program, arg2: ::std::os::raw::c_int) {}
-
-pub fn pcap_get_selectable_fd(arg1: *mut pcap_t) -> ::std::os::raw::c_int {}
-**/
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
     }
 }
