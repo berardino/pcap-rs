@@ -7,8 +7,7 @@ use std::ptr;
 use libc;
 use nix::sys::socket::Ipv4Addr;
 use nix::sys::socket::SockAddr;
-
-use self::Error::*;
+use nix::sys::time::TimeVal;
 
 mod raw;
 
@@ -19,7 +18,7 @@ pub struct DeviceAddress {
 }
 
 #[derive(Debug)]
-pub struct NetworkAddress {
+pub struct Address {
     pub addr: SockAddr,
     pub netmask: Option<SockAddr>,
     pub broadaddr: Option<SockAddr>,
@@ -27,17 +26,28 @@ pub struct NetworkAddress {
 }
 
 #[derive(Debug)]
-pub struct NetworkDevice {
+pub struct Device {
     pub name: String,
     pub description: Option<String>,
-    pub addresses: Vec<NetworkAddress>,
+    pub addresses: Vec<Address>,
     pub flags: u32,
 }
 
-#[derive(Debug, PartialEq)]
-pub enum Error {
-    MalformedError(std::str::Utf8Error),
-    PcapError(String),
+#[derive(Debug)]
+pub struct DeviceCaptureHandle {
+    handle: *const raw::pcap_t
+}
+
+#[derive(Debug)]
+pub struct PacketHeader {
+    pub ts: TimeVal,
+    pub len: u32,
+}
+
+#[derive(Debug)]
+pub struct Packet<'a> {
+    pub header: PacketHeader,
+    pub packet: &'a [u8],
 }
 
 fn from_c_string(ptr: *const ::std::os::raw::c_char) -> Option<String> {
@@ -48,13 +58,17 @@ fn from_c_string(ptr: *const ::std::os::raw::c_char) -> Option<String> {
     }
 }
 
-unsafe fn parse_pcap_addr_t(addrs: *const raw::pcap_addr_t) -> Vec<NetworkAddress> {
+fn from_c_string_u(ptr: *const ::std::os::raw::c_uchar) -> Option<String> {
+    from_c_string(ptr as *const ::std::os::raw::c_char)
+}
+
+unsafe fn parse_pcap_addr_t(addrs: *const raw::pcap_addr_t) -> Vec<Address> {
     let mut addresses = Vec::new();
     let mut it = addrs;
     while !it.is_null() {
         let curr_addr = *it;
         SockAddr::from_libc_sockaddr(curr_addr.addr).map(|addr| {
-            addresses.push(NetworkAddress {
+            addresses.push(Address {
                 addr: addr,
                 netmask: SockAddr::from_libc_sockaddr(curr_addr.netmask),
                 broadaddr: SockAddr::from_libc_sockaddr(curr_addr.broadaddr),
@@ -77,15 +91,15 @@ pub fn pcap_lookupdev() -> Option<String> {
 }
 
 pub fn pcap_lookupnet(
-    name: &str
+    device: &str
 ) -> Result<DeviceAddress, String> {
     let mut errbuf = [0i8; raw::PCAP_ERRBUF_SIZE as usize];
     let err_ptr = errbuf.as_mut_ptr();
     let mut netp: raw::bpf_u_int32 = 0;
     let mut maskp: raw::bpf_u_int32 = 0;
-    let name_c = CString::new(name).unwrap();
+    let device_c = CString::new(device).unwrap();
     unsafe {
-        if raw::pcap_lookupnet(name_c.as_ptr(), &mut netp, &mut maskp, err_ptr) == 0 {
+        if raw::pcap_lookupnet(device_c.as_ptr(), &mut netp, &mut maskp, err_ptr) == 0 {
             let netp_ptr: *const libc::in_addr = mem::transmute(&netp);
             let maskp_ptr: *const libc::in_addr = mem::transmute(&maskp);
             Ok(DeviceAddress {
@@ -195,14 +209,27 @@ pub fn pcap_tstamp_type_val_to_description(
     arg1: ::std::os::raw::c_int,
 ) -> *const ::std::os::raw::c_char {}
 
+**/
 pub fn pcap_open_live(
-    arg1: *const ::std::os::raw::c_char,
-    arg2: ::std::os::raw::c_int,
-    arg3: ::std::os::raw::c_int,
-    arg4: ::std::os::raw::c_int,
-    arg5: *mut ::std::os::raw::c_char,
-) -> *mut pcap_t {}
+    device: &str,
+    snaplen: i32,
+    promisc: i32,
+    to_ms: i32,
+) -> Result<DeviceCaptureHandle, String> {
+    let mut errbuf = [0i8; raw::PCAP_ERRBUF_SIZE as usize];
+    let err_ptr = errbuf.as_mut_ptr();
+    let device_c = CString::new(device).unwrap();
+    unsafe {
+        let handle_ptr = raw::pcap_open_live(device_c.as_ptr(), snaplen, promisc, to_ms, err_ptr);
+        if handle_ptr.is_null() {
+            Err(from_c_string(err_ptr).unwrap())
+        } else {
+            Ok(DeviceCaptureHandle { handle: handle_ptr })
+        }
+    }
+}
 
+/**
 pub fn pcap_open_dead(arg1: ::std::os::raw::c_int, arg2: ::std::os::raw::c_int) -> *mut pcap_t {}
 
 pub fn pcap_open_dead_with_tstamp_precision(
@@ -245,9 +272,34 @@ pub fn pcap_dispatch(
     arg3: pcap_handler,
     arg4: *mut u_char,
 ) -> ::std::os::raw::c_int {}
+**/
 
-pub fn pcap_next(arg1: *mut pcap_t, arg2: *mut pcap_pkthdr) -> *const u_char {}
+pub fn pcap_next(handle: &DeviceCaptureHandle) -> Option<Packet> {
+    unsafe {
+        let mut packet_header: raw::pcap_pkthdr = std::mem::zeroed();
+        let packet_ptr = raw::pcap_next(handle.handle as *mut raw::pcap_t, &mut packet_header);
 
+        if (packet_ptr.is_null()) {
+            None
+        } else {
+            let packet = core::slice::from_raw_parts(packet_ptr, packet_header.caplen as usize);
+            let time = libc::timeval {
+                tv_sec: packet_header.ts.tv_sec,
+                tv_usec: packet_header.ts.tv_usec,
+            };
+            Some(
+                Packet {
+                    header: PacketHeader {
+                        ts: TimeVal::from(time),
+                        len: packet_header.len,
+                    },
+                    packet,
+                })
+        }
+    }
+}
+
+/**
 pub fn pcap_next_ex(
     arg1: *mut pcap_t,
     arg2: *mut *mut pcap_pkthdr,
@@ -378,25 +430,25 @@ pub fn pcap_dump(arg1: *mut u_char, arg2: *const pcap_pkthdr, arg3: *const u_cha
 
 **/
 
-pub fn pcap_findalldevs() -> Result<Vec<NetworkDevice>, Error> {
+pub fn pcap_findalldevs() -> Result<Vec<Device>, String> {
     unsafe {
         let mut errbuf = [0i8; raw::PCAP_ERRBUF_SIZE as usize];
-        let ptr = errbuf.as_mut_ptr();
+        let err_ptr = errbuf.as_mut_ptr();
         let mut alldevsp: *mut raw::pcap_if_t = ptr::null_mut();
-        if raw::pcap_findalldevs(&mut alldevsp, ptr) == raw::PCAP_ERROR {
-            return Result::Err(PcapError(String::from("error")));
+        if raw::pcap_findalldevs(&mut alldevsp, err_ptr) == raw::PCAP_ERROR {
+            return Err(from_c_string(err_ptr).unwrap());
         }
         let mut curr_ptr = alldevsp;
         let mut devices = vec![];
         while !curr_ptr.is_null() {
             let curr = &*curr_ptr;
-            let device = from_c_string(curr.name).map(|name| NetworkDevice {
+            let device = from_c_string(curr.name).map(|name| Device {
                 name,
                 description: from_c_string(curr.description),
                 addresses: parse_pcap_addr_t(curr.addresses),
                 flags: curr.flags,
             });
-            if (device.is_some()) {
+            if device.is_some() {
                 devices.push(device.unwrap());
             }
             curr_ptr = curr.next;

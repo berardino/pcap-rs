@@ -6,8 +6,8 @@ edition = "2018"
 build = "build.rs"
 
 [dependencies]
-nix = "0.13.0"
-libc = "0.2.51"
+nix = {git = "https://github.com/nix-rust/nix.git"}
+libc = { git = "https://github.com/rust-lang/libc" }
 
 # Could not compile `nix`.\nprocess didn't exit successfully
 # https://github.com/rust-lang/rls/issues/1449
