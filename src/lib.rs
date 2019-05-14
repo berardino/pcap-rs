@@ -337,13 +337,13 @@ pub fn pcap_next(handle: &CaptureHandle) -> Option<PacketCapture> {
 
 pub fn pcap_next_ex(
     handle: &CaptureHandle
-) -> Result<Option<PacketCapture>, i32> {
+) -> Result<PacketCapture, i32> {
     unsafe {
         let mut packet_ptr: *const raw::u_char = ptr::null_mut();
         let mut packet_header: *mut raw::pcap_pkthdr = ptr::null_mut();
         match raw::pcap_next_ex(handle.handle as *mut raw::pcap_t, &mut packet_header, &mut packet_ptr) {
             1 => {
-                Ok(from_raw_packet_capture(packet_ptr, packet_header))
+                Ok(from_raw_packet_capture(packet_ptr, packet_header).unwrap())
             }
             err => {
                 Err(err)
