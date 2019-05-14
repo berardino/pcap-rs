@@ -335,12 +335,24 @@ pub fn pcap_next(handle: &CaptureHandle) -> Option<PacketCapture> {
     }
 }
 
-/**
 pub fn pcap_next_ex(
-    arg1: *mut pcap_t,
-    arg2: *mut *mut pcap_pkthdr,
-    arg3: *mut *const u_char,
-) -> ::std::os::raw::c_int {}
+    handle: &CaptureHandle
+) -> Result<Option<PacketCapture>, i32> {
+    unsafe {
+        let mut packet_ptr: *const raw::u_char = ptr::null_mut();
+        let mut packet_header: *mut raw::pcap_pkthdr = ptr::null_mut();
+        match raw::pcap_next_ex(handle.handle as *mut raw::pcap_t, &mut packet_header, &mut packet_ptr) {
+            1 => {
+                Ok(from_raw_packet_capture(packet_ptr, packet_header))
+            }
+            err => {
+                Err(err)
+            }
+        }
+    }
+}
+
+/**
 
 pub fn pcap_breakloop(arg1: *mut pcap_t) {}
 
