@@ -1,8 +1,7 @@
 use core::mem;
+use std::{panic, ptr};
 use std::ffi::CStr;
 use std::ffi::CString;
-use std::os::raw::c_char;
-use std::ptr;
 
 use libc;
 use nix::sys::socket::Ipv4Addr;
@@ -34,7 +33,7 @@ pub struct Device {
 }
 
 #[derive(Debug)]
-pub struct DeviceCaptureHandle {
+pub struct CaptureHandle {
     handle: *const raw::pcap_t
 }
 
@@ -45,10 +44,11 @@ pub struct PacketHeader {
 }
 
 #[derive(Debug)]
-pub struct Packet<'a> {
+pub struct PacketCapture<'a> {
     pub header: PacketHeader,
     pub packet: &'a [u8],
 }
+
 
 fn from_c_string(ptr: *const ::std::os::raw::c_char) -> Option<String> {
     if ptr.is_null() {
@@ -56,10 +56,6 @@ fn from_c_string(ptr: *const ::std::os::raw::c_char) -> Option<String> {
     } else {
         Some(unsafe { CStr::from_ptr(ptr).to_string_lossy().into_owned() })
     }
-}
-
-fn from_c_string_u(ptr: *const ::std::os::raw::c_uchar) -> Option<String> {
-    from_c_string(ptr as *const ::std::os::raw::c_char)
 }
 
 unsafe fn parse_pcap_addr_t(addrs: *const raw::pcap_addr_t) -> Vec<Address> {
@@ -215,7 +211,7 @@ pub fn pcap_open_live(
     snaplen: i32,
     promisc: i32,
     to_ms: i32,
-) -> Result<DeviceCaptureHandle, String> {
+) -> Result<CaptureHandle, String> {
     let mut errbuf = [0i8; raw::PCAP_ERRBUF_SIZE as usize];
     let err_ptr = errbuf.as_mut_ptr();
     let device_c = CString::new(device).unwrap();
@@ -224,7 +220,7 @@ pub fn pcap_open_live(
         if handle_ptr.is_null() {
             Err(from_c_string(err_ptr).unwrap())
         } else {
-            Ok(DeviceCaptureHandle { handle: handle_ptr })
+            Ok(CaptureHandle { handle: handle_ptr })
         }
     }
 }
@@ -258,14 +254,46 @@ pub fn pcap_fopen_offline_with_tstamp_precision(
 pub fn pcap_fopen_offline(arg1: *mut FILE, arg2: *mut ::std::os::raw::c_char) -> *mut pcap_t {}
 
 pub fn pcap_close(arg1: *mut pcap_t) {}
+**/
 
-pub fn pcap_loop(
-    arg1: *mut pcap_t,
-    arg2: ::std::os::raw::c_int,
-    arg3: pcap_handler,
-    arg4: *mut u_char,
-) -> ::std::os::raw::c_int {}
+unsafe extern fn packet_capture_callback<F: Fn(&PacketCapture)>(user: *mut raw::u_char,
+                                                                header: *const raw::pcap_pkthdr,
+                                                                packet: *const raw::u_char) {
+    let packet_capture = from_raw_packet_capture(packet, header);
 
+    let cb_state_ptr = unsafe { &mut *(user as *mut CallbackState<F>) };
+    match *cb_state_ptr {
+        CallbackState::Callback(ref mut cb_ptr) => {
+            let callback = cb_ptr as *mut F as *mut raw::u_char;
+            panic::catch_unwind(|| {
+                let callback = unsafe { &mut *(callback as *mut F) };
+                packet_capture.iter().for_each(|p| callback(&p));
+            });
+        }
+    }
+}
+
+enum CallbackState<F: Fn(&PacketCapture)> {
+    Callback(F),
+}
+
+pub fn pcap_loop<F: Fn(&PacketCapture)>(
+    handle: &CaptureHandle,
+    count: i32,
+    callback: F,
+) -> i32 {
+    unsafe {
+        let mut cb_state = CallbackState::Callback(callback);
+        let cb_ptr = &mut cb_state as *mut _ as *mut raw::u_char;
+        raw::pcap_loop(handle.handle as *mut raw::pcap_t,
+                       count,
+                       Some(packet_capture_callback::<F>),
+                       cb_ptr,
+        )
+    }
+}
+
+/**
 pub fn pcap_dispatch(
     arg1: *mut pcap_t,
     arg2: ::std::os::raw::c_int,
@@ -274,28 +302,36 @@ pub fn pcap_dispatch(
 ) -> ::std::os::raw::c_int {}
 **/
 
-pub fn pcap_next(handle: &DeviceCaptureHandle) -> Option<Packet> {
+unsafe fn from_raw_header(raw_header: *const raw::pcap_pkthdr) -> PacketHeader {
+    let time = libc::timeval {
+        tv_sec: (*raw_header).ts.tv_sec,
+        tv_usec: (*raw_header).ts.tv_usec,
+    };
+    PacketHeader {
+        ts: TimeVal::from(time),
+        len: (*raw_header).len,
+    }
+}
+
+unsafe fn from_raw_packet_capture<'a>(raw_packet: *const raw::u_char,
+                                      raw_header: *const raw::pcap_pkthdr) -> Option<PacketCapture<'a>> {
+    if raw_packet.is_null() {
+        None
+    } else {
+        let header = from_raw_header(raw_header);
+        let packet = core::slice::from_raw_parts(raw_packet, header.len as usize);
+        Some(PacketCapture {
+            header,
+            packet,
+        })
+    }
+}
+
+pub fn pcap_next(handle: &CaptureHandle) -> Option<PacketCapture> {
     unsafe {
         let mut packet_header: raw::pcap_pkthdr = std::mem::zeroed();
         let packet_ptr = raw::pcap_next(handle.handle as *mut raw::pcap_t, &mut packet_header);
-
-        if (packet_ptr.is_null()) {
-            None
-        } else {
-            let packet = core::slice::from_raw_parts(packet_ptr, packet_header.caplen as usize);
-            let time = libc::timeval {
-                tv_sec: packet_header.ts.tv_sec,
-                tv_usec: packet_header.ts.tv_usec,
-            };
-            Some(
-                Packet {
-                    header: PacketHeader {
-                        ts: TimeVal::from(time),
-                        len: packet_header.len,
-                    },
-                    packet,
-                })
-        }
+        from_raw_packet_capture(packet_ptr, &packet_header)
     }
 }
 
