@@ -2,6 +2,7 @@ use core::mem;
 use std::{panic, ptr};
 use std::ffi::CStr;
 use std::ffi::CString;
+use std::str::from_utf8;
 
 use libc;
 use nix::sys::socket::Ipv4Addr;
@@ -429,11 +430,21 @@ pub fn pcap_offline_filter(
     arg2: *const pcap_pkthdr,
     arg3: *const u_char,
 ) -> ::std::os::raw::c_int {}
+**/
 
-pub fn pcap_datalink(arg1: *mut pcap_t) -> ::std::os::raw::c_int {}
+pub fn pcap_datalink(handle: &CaptureHandle) -> i32 {
+    unsafe {
+        raw::pcap_datalink(handle.handle as *mut raw::pcap_t)
+    }
+}
 
-pub fn pcap_datalink_ext(arg1: *mut pcap_t) -> ::std::os::raw::c_int {}
+pub fn pcap_datalink_ext(handle: &CaptureHandle) -> i32 {
+    unsafe {
+        raw::pcap_datalink_ext(handle.handle as *mut raw::pcap_t)
+    }
+}
 
+/**
 pub fn pcap_list_datalinks(
     arg1: *mut pcap_t,
     arg2: *mut *mut ::std::os::raw::c_int,
@@ -445,15 +456,30 @@ pub fn pcap_set_datalink(
 ) -> ::std::os::raw::c_int {}
 
 pub fn pcap_free_datalinks(arg1: *mut ::std::os::raw::c_int) {}
+**/
 
-pub fn pcap_datalink_name_to_val(arg1: *const ::std::os::raw::c_char) -> ::std::os::raw::c_int {}
+pub fn pcap_datalink_name_to_val(name: &str) -> i32 {
+    let name_c = CString::new(name).unwrap();
+    unsafe {
+        raw::pcap_datalink_name_to_val(name_c.as_ptr())
+    }
+}
 
-pub fn pcap_datalink_val_to_name(arg1: ::std::os::raw::c_int) -> *const ::std::os::raw::c_char {}
+pub fn pcap_datalink_val_to_name(val: i32) -> Option<String> {
+    unsafe {
+        from_c_string(raw::pcap_datalink_val_to_name(val))
+    }
+}
 
 pub fn pcap_datalink_val_to_description(
-    arg1: ::std::os::raw::c_int,
-) -> *const ::std::os::raw::c_char {}
-**/
+    val: i32,
+) -> Option<String> {
+    unsafe {
+        from_c_string(raw::pcap_datalink_val_to_description(val))
+    }
+}
+
+
 pub fn pcap_snapshot(handle: &CaptureHandle) -> i32 {
     unsafe {
         raw::pcap_snapshot(handle.handle as *mut raw::pcap_t)
