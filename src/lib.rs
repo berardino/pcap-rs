@@ -448,15 +448,32 @@ pub fn pcap_datalink_val_to_name(arg1: ::std::os::raw::c_int) -> *const ::std::o
 pub fn pcap_datalink_val_to_description(
     arg1: ::std::os::raw::c_int,
 ) -> *const ::std::os::raw::c_char {}
+**/
+pub fn pcap_snapshot(handle: &CaptureHandle) -> i32 {
+    unsafe {
+        raw::pcap_snapshot(handle.handle as *mut raw::pcap_t)
+    }
+}
 
-pub fn pcap_snapshot(arg1: *mut pcap_t) -> ::std::os::raw::c_int {}
+pub fn pcap_is_swapped(handle: &CaptureHandle) -> i32 {
+    unsafe {
+        raw::pcap_is_swapped(handle.handle as *mut raw::pcap_t)
+    }
+}
 
-pub fn pcap_is_swapped(arg1: *mut pcap_t) -> ::std::os::raw::c_int {}
+pub fn pcap_major_version(handle: &CaptureHandle) -> i32 {
+    unsafe {
+        raw::pcap_major_version(handle.handle as *mut raw::pcap_t)
+    }
+}
 
-pub fn pcap_major_version(arg1: *mut pcap_t) -> ::std::os::raw::c_int {}
+pub fn pcap_minor_version(handle: &CaptureHandle) -> i32 {
+    unsafe {
+        raw::pcap_minor_version(handle.handle as *mut raw::pcap_t)
+    }
+}
 
-pub fn pcap_minor_version(arg1: *mut pcap_t) -> ::std::os::raw::c_int {}
-
+/**
 pub fn pcap_file(arg1: *mut pcap_t) -> *mut FILE {}
 
 pub fn pcap_fileno(arg1: *mut pcap_t) -> ::std::os::raw::c_int {}
