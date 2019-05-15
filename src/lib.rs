@@ -277,6 +277,7 @@ enum CallbackState<F: Fn(&PacketCapture)> {
     Callback(F),
 }
 
+//TODO: pass optional user data with the callback
 pub fn pcap_loop<F: Fn(&PacketCapture)>(
     handle: &CaptureHandle,
     count: i32,
@@ -288,19 +289,25 @@ pub fn pcap_loop<F: Fn(&PacketCapture)>(
         raw::pcap_loop(handle.handle as *mut raw::pcap_t,
                        count,
                        Some(packet_capture_callback::<F>),
-                       cb_ptr,
-        )
+                       cb_ptr)
     }
 }
 
-/**
-pub fn pcap_dispatch(
-    arg1: *mut pcap_t,
-    arg2: ::std::os::raw::c_int,
-    arg3: pcap_handler,
-    arg4: *mut u_char,
-) -> ::std::os::raw::c_int {}
-**/
+//TODO: pass optional user data with the callback
+pub fn pcap_dispatch<F: Fn(&PacketCapture)>(
+    handle: &CaptureHandle,
+    count: i32,
+    callback: F,
+) -> i32 {
+    unsafe {
+        let mut cb_state = CallbackState::Callback(callback);
+        let cb_ptr = &mut cb_state as *mut _ as *mut raw::u_char;
+        raw::pcap_dispatch(handle.handle as *mut raw::pcap_t,
+                           count,
+                           Some(packet_capture_callback::<F>),
+                           cb_ptr)
+    }
+}
 
 unsafe fn from_raw_header(raw_header: *const raw::pcap_pkthdr) -> PacketHeader {
     let time = libc::timeval {
