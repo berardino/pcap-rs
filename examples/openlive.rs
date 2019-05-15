@@ -1,9 +1,11 @@
 use pcap::*;
 
 fn main() {
-    match pcap_open_live("wlp2s0", 100, 0, 1000) {
+    let name = pcap_lookupdev().unwrap();
+    match pcap_open_live(&name, 100, 0, 1000) {
         Ok(handle) => {
-            println!("{:#?}", handle)
+            println!("{:#?}", handle);
+            pcap_close(&handle)
         }
         Err(err) => {
             println!("{}", err)

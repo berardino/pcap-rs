@@ -5,9 +5,10 @@ fn callback(capture: &PacketCapture) {
 }
 
 fn main() {
-    match pcap_open_live("wlp2s0", 100, 0, 1000) {
+    match pcap_open_live("lo", 100, 0, 1000) {
         Ok(handle) => {
             pcap_dispatch(&handle, 10, callback);
+            pcap_close(&handle)
         }
         Err(err) => {
             println!("{}", err)

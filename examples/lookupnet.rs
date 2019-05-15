@@ -1,7 +1,8 @@
 use pcap::*;
 
 fn main() {
-    match pcap_lookupnet("wlp2s0") {
+    let name = pcap_lookupdev().unwrap();
+    match pcap_lookupnet(&name) {
         Ok(device) => {
             println!("{:#?}", device)
         }

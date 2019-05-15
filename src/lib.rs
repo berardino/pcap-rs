@@ -137,6 +137,59 @@ mod tests {
 }
 
 /**
+pub fn pcap_open_dead(arg1: ::std::os::raw::c_int, arg2: ::std::os::raw::c_int) -> *mut pcap_t {}
+
+pub fn pcap_open_dead_with_tstamp_precision(
+    arg1: ::std::os::raw::c_int,
+    arg2: ::std::os::raw::c_int,
+    arg3: u_int,
+) -> *mut pcap_t {}
+
+pub fn pcap_open_offline_with_tstamp_precision(
+    arg1: *const ::std::os::raw::c_char,
+    arg2: u_int,
+    arg3: *mut ::std::os::raw::c_char,
+) -> *mut pcap_t {}
+
+pub fn pcap_open_offline(
+    arg1: *const ::std::os::raw::c_char,
+    arg2: *mut ::std::os::raw::c_char,
+) -> *mut pcap_t {}
+
+pub fn pcap_fopen_offline_with_tstamp_precision(
+    arg1: *mut FILE,
+    arg2: u_int,
+    arg3: *mut ::std::os::raw::c_char,
+) -> *mut pcap_t {}
+
+pub fn pcap_fopen_offline(arg1: *mut FILE, arg2: *mut ::std::os::raw::c_char) -> *mut pcap_t {}
+**/
+
+pub fn pcap_close(handle: &CaptureHandle) {
+    unsafe {
+        raw::pcap_close(handle.handle as *mut raw::pcap_t)
+    }
+}
+
+
+unsafe extern fn packet_capture_callback<F: Fn(&PacketCapture)>(user: *mut raw::u_char,
+                                                                header: *const raw::pcap_pkthdr,
+                                                                packet: *const raw::u_char) {
+    let packet_capture = from_raw_packet_capture(packet, header);
+
+    let cb_state_ptr = unsafe { &mut *(user as *mut CallbackState<F>) };
+    match *cb_state_ptr {
+        CallbackState::Callback(ref mut cb_ptr) => {
+            let callback = cb_ptr as *mut F as *mut raw::u_char;
+            panic::catch_unwind(|| {
+                let callback = unsafe { &mut *(callback as *mut F) };
+                packet_capture.iter().for_each(|p| callback(&p));
+            });
+        }
+    }
+}
+
+/**
 
 pub fn pcap_create(
     arg1: *const ::std::os::raw::c_char,
@@ -221,54 +274,6 @@ pub fn pcap_open_live(
             Err(from_c_string(err_ptr).unwrap())
         } else {
             Ok(CaptureHandle { handle: handle_ptr })
-        }
-    }
-}
-
-/**
-pub fn pcap_open_dead(arg1: ::std::os::raw::c_int, arg2: ::std::os::raw::c_int) -> *mut pcap_t {}
-
-pub fn pcap_open_dead_with_tstamp_precision(
-    arg1: ::std::os::raw::c_int,
-    arg2: ::std::os::raw::c_int,
-    arg3: u_int,
-) -> *mut pcap_t {}
-
-pub fn pcap_open_offline_with_tstamp_precision(
-    arg1: *const ::std::os::raw::c_char,
-    arg2: u_int,
-    arg3: *mut ::std::os::raw::c_char,
-) -> *mut pcap_t {}
-
-pub fn pcap_open_offline(
-    arg1: *const ::std::os::raw::c_char,
-    arg2: *mut ::std::os::raw::c_char,
-) -> *mut pcap_t {}
-
-pub fn pcap_fopen_offline_with_tstamp_precision(
-    arg1: *mut FILE,
-    arg2: u_int,
-    arg3: *mut ::std::os::raw::c_char,
-) -> *mut pcap_t {}
-
-pub fn pcap_fopen_offline(arg1: *mut FILE, arg2: *mut ::std::os::raw::c_char) -> *mut pcap_t {}
-
-pub fn pcap_close(arg1: *mut pcap_t) {}
-**/
-
-unsafe extern fn packet_capture_callback<F: Fn(&PacketCapture)>(user: *mut raw::u_char,
-                                                                header: *const raw::pcap_pkthdr,
-                                                                packet: *const raw::u_char) {
-    let packet_capture = from_raw_packet_capture(packet, header);
-
-    let cb_state_ptr = unsafe { &mut *(user as *mut CallbackState<F>) };
-    match *cb_state_ptr {
-        CallbackState::Callback(ref mut cb_ptr) => {
-            let callback = cb_ptr as *mut F as *mut raw::u_char;
-            panic::catch_unwind(|| {
-                let callback = unsafe { &mut *(callback as *mut F) };
-                packet_capture.iter().for_each(|p| callback(&p));
-            });
         }
     }
 }
