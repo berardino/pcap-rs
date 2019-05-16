@@ -2,7 +2,6 @@ use core::mem;
 use std::{panic, ptr};
 use std::ffi::CStr;
 use std::ffi::CString;
-use std::str::from_utf8;
 
 use libc;
 use nix::sys::socket::Ipv4Addr;
@@ -77,7 +76,7 @@ unsafe fn parse_pcap_addr_t(addrs: *const raw::pcap_addr_t) -> Vec<Address> {
     addresses
 }
 
-// DEPRECATED
+#[deprecated(note = "This interface is obsoleted by pcap_findalldevs")]
 pub fn pcap_lookupdev() -> Option<String> {
     unsafe {
         let mut errbuf = [0i8; raw::PCAP_ERRBUF_SIZE as usize];
@@ -127,15 +126,9 @@ pub fn bpf_image(
 
 pub fn bpf_dump(arg1: *const bpf_program, arg2: ::std::os::raw::c_int) {}
 
+//TODO
 pub fn pcap_get_selectable_fd(arg1: *mut pcap_t) -> ::std::os::raw::c_int {}
 **/
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
-}
 
 /**
 pub fn pcap_open_dead(arg1: ::std::os::raw::c_int, arg2: ::std::os::raw::c_int) -> *mut pcap_t {}
@@ -190,13 +183,25 @@ unsafe extern fn packet_capture_callback<F: Fn(&PacketCapture)>(user: *mut raw::
     }
 }
 
-/**
 
 pub fn pcap_create(
-    arg1: *const ::std::os::raw::c_char,
-    arg2: *mut ::std::os::raw::c_char,
-) -> *mut pcap_t {}
+    source: &str
+) -> Result<CaptureHandle, String> {
+    let mut errbuf = [0i8; raw::PCAP_ERRBUF_SIZE as usize];
+    let err_ptr = errbuf.as_mut_ptr();
+    let device_c = CString::new(source).unwrap();
+    unsafe {
+        let handle_ptr = raw::pcap_create(device_c.as_ptr(), err_ptr);
+        if handle_ptr.is_null() {
+            Err(from_c_string(err_ptr).unwrap())
+        } else {
+            Ok(CaptureHandle { handle: handle_ptr })
+        }
+    }
+}
 
+
+/**
 pub fn pcap_set_snaplen(
     arg1: *mut pcap_t,
     arg2: ::std::os::raw::c_int,
@@ -365,9 +370,13 @@ pub fn pcap_next_ex(
     }
 }
 
-/**
+pub fn pcap_breakloop(handle: &CaptureHandle) {
+    unsafe {
+        raw::pcap_breakloop(handle.handle as *mut raw::pcap_t)
+    }
+}
 
-pub fn pcap_breakloop(arg1: *mut pcap_t) {}
+/**
 
 pub fn pcap_stats(arg1: *mut pcap_t, arg2: *mut pcap_stat) -> ::std::os::raw::c_int {}
 
@@ -397,14 +406,33 @@ pub fn pcap_sendpacket(
     arg2: *const u_char,
     arg3: ::std::os::raw::c_int,
 ) -> ::std::os::raw::c_int {}
+**/
+pub fn pcap_statustostr(errnum: i32) -> Option<String> {
+    unsafe {
+        from_c_string(raw::pcap_statustostr(errnum))
+    }
+}
 
-pub fn pcap_statustostr(arg1: ::std::os::raw::c_int) -> *const ::std::os::raw::c_char {}
+pub fn pcap_strerror(errnum: i32) -> Option<String> {
+    unsafe {
+        from_c_string(raw::pcap_strerror(errnum))
+    }
+}
 
-pub fn pcap_strerror(arg1: ::std::os::raw::c_int) -> *const ::std::os::raw::c_char {}
+pub fn pcap_geterr(handle: &CaptureHandle) -> Option<String> {
+    unsafe {
+        from_c_string(raw::pcap_geterr(handle.handle as *mut raw::pcap_t))
+    }
+}
 
-pub fn pcap_geterr(arg1: *mut pcap_t) -> *mut ::std::os::raw::c_char {}
+pub fn pcap_perror(handle: &CaptureHandle, prefix: &str) {
+    let prefix_c = CString::new(prefix).unwrap();
+    unsafe {
+        raw::pcap_perror(handle.handle as *mut raw::pcap_t, prefix_c.as_ptr())
+    }
+}
 
-pub fn pcap_perror(arg1: *mut pcap_t, arg2: *const ::std::os::raw::c_char) {}
+/**
 
 pub fn pcap_compile(
     arg1: *mut pcap_t,
