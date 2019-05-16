@@ -242,9 +242,14 @@ pub fn pcap_set_tstamp_precision(
 ) -> ::std::os::raw::c_int {}
 
 pub fn pcap_get_tstamp_precision(arg1: *mut pcap_t) -> ::std::os::raw::c_int {}
+**/
+pub fn pcap_activate(handle: &CaptureHandle) -> i32 {
+    unsafe {
+        raw::pcap_activate(handle.handle as *mut raw::pcap_t)
+    }
+}
 
-pub fn pcap_activate(arg1: *mut pcap_t) -> ::std::os::raw::c_int {}
-
+/**
 pub fn pcap_list_tstamp_types(
     arg1: *mut pcap_t,
     arg2: *mut *mut ::std::os::raw::c_int,
