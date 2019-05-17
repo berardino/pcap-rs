@@ -1,4 +1,4 @@
-use core::mem;
+use core::{fmt, mem};
 use std::{panic, ptr};
 use std::ffi::CStr;
 use std::ffi::CString;
@@ -33,19 +33,41 @@ pub struct Device {
 }
 
 #[derive(Debug)]
-pub struct CaptureHandle {
-    handle: *const raw::pcap_t
+pub struct Handle<T> {
+    handle: *const T
 }
 
-#[derive(Debug)]
+impl<T> Handle<T> {
+    fn as_mut_ptr(&self) -> *mut T {
+        self.handle as *mut T
+    }
+}
+
+pub type DeviceHandle = Handle<raw::pcap_t>;
+pub type DumperHandle = Handle<raw::pcap_dumper_t>;
+
+
+#[repr(C)]
 pub struct PacketHeader {
-    pub ts: TimeVal,
+    pub ts: libc::timeval,
+    pub caplen: u32,
     pub len: u32,
 }
 
+impl fmt::Debug for PacketHeader {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f,
+               "PacketHeader {{ ts: {}, caplen: {}, len: {} }}",
+               TimeVal::from(self.ts),
+               self.caplen,
+               self.len)
+    }
+}
+
+
 #[derive(Debug)]
 pub struct PacketCapture<'a> {
-    pub header: PacketHeader,
+    pub header: &'a PacketHeader,
     pub packet: &'a [u8],
 }
 
@@ -145,11 +167,17 @@ pub fn pcap_open_offline_with_tstamp_precision(
     arg3: *mut ::std::os::raw::c_char,
 ) -> *mut pcap_t {}
 
+
 pub fn pcap_open_offline(
     arg1: *const ::std::os::raw::c_char,
     arg2: *mut ::std::os::raw::c_char,
-) -> *mut pcap_t {}
+) -> *mut pcap_t {
 
+}
+
+**/
+
+/**
 pub fn pcap_fopen_offline_with_tstamp_precision(
     arg1: *mut FILE,
     arg2: u_int,
@@ -159,9 +187,9 @@ pub fn pcap_fopen_offline_with_tstamp_precision(
 pub fn pcap_fopen_offline(arg1: *mut FILE, arg2: *mut ::std::os::raw::c_char) -> *mut pcap_t {}
 **/
 
-pub fn pcap_close(handle: &CaptureHandle) {
+pub fn pcap_close(handle: &DeviceHandle) {
     unsafe {
-        raw::pcap_close(handle.handle as *mut raw::pcap_t)
+        raw::pcap_close(handle.as_mut_ptr())
     }
 }
 
@@ -186,7 +214,7 @@ unsafe extern fn packet_capture_callback<F: Fn(&PacketCapture)>(user: *mut raw::
 
 pub fn pcap_create(
     source: &str
-) -> Result<CaptureHandle, String> {
+) -> Result<DeviceHandle, String> {
     let mut errbuf = [0i8; raw::PCAP_ERRBUF_SIZE as usize];
     let err_ptr = errbuf.as_mut_ptr();
     let device_c = CString::new(source).unwrap();
@@ -195,7 +223,7 @@ pub fn pcap_create(
         if handle_ptr.is_null() {
             Err(from_c_string(err_ptr).unwrap())
         } else {
-            Ok(CaptureHandle { handle: handle_ptr })
+            Ok(DeviceHandle { handle: handle_ptr })
         }
     }
 }
@@ -243,9 +271,9 @@ pub fn pcap_set_tstamp_precision(
 
 pub fn pcap_get_tstamp_precision(arg1: *mut pcap_t) -> ::std::os::raw::c_int {}
 **/
-pub fn pcap_activate(handle: &CaptureHandle) -> i32 {
+pub fn pcap_activate(handle: &DeviceHandle) -> i32 {
     unsafe {
-        raw::pcap_activate(handle.handle as *mut raw::pcap_t)
+        raw::pcap_activate(handle.as_mut_ptr())
     }
 }
 
@@ -275,7 +303,7 @@ pub fn pcap_open_live(
     snaplen: i32,
     promisc: i32,
     to_ms: i32,
-) -> Result<CaptureHandle, String> {
+) -> Result<DeviceHandle, String> {
     let mut errbuf = [0i8; raw::PCAP_ERRBUF_SIZE as usize];
     let err_ptr = errbuf.as_mut_ptr();
     let device_c = CString::new(device).unwrap();
@@ -284,7 +312,7 @@ pub fn pcap_open_live(
         if handle_ptr.is_null() {
             Err(from_c_string(err_ptr).unwrap())
         } else {
-            Ok(CaptureHandle { handle: handle_ptr })
+            Ok(DeviceHandle { handle: handle_ptr })
         }
     }
 }
@@ -295,14 +323,14 @@ enum CallbackState<F: Fn(&PacketCapture)> {
 
 //TODO: pass optional user data with the callback
 pub fn pcap_loop<F: Fn(&PacketCapture)>(
-    handle: &CaptureHandle,
+    handle: &DeviceHandle,
     count: i32,
     callback: F,
 ) -> i32 {
     unsafe {
         let mut cb_state = CallbackState::Callback(callback);
         let cb_ptr = &mut cb_state as *mut _ as *mut raw::u_char;
-        raw::pcap_loop(handle.handle as *mut raw::pcap_t,
+        raw::pcap_loop(handle.as_mut_ptr(),
                        count,
                        Some(packet_capture_callback::<F>),
                        cb_ptr)
@@ -311,28 +339,17 @@ pub fn pcap_loop<F: Fn(&PacketCapture)>(
 
 //TODO: pass optional user data with the callback
 pub fn pcap_dispatch<F: Fn(&PacketCapture)>(
-    handle: &CaptureHandle,
+    handle: &DeviceHandle,
     count: i32,
     callback: F,
 ) -> i32 {
     unsafe {
         let mut cb_state = CallbackState::Callback(callback);
         let cb_ptr = &mut cb_state as *mut _ as *mut raw::u_char;
-        raw::pcap_dispatch(handle.handle as *mut raw::pcap_t,
+        raw::pcap_dispatch(handle.as_mut_ptr(),
                            count,
                            Some(packet_capture_callback::<F>),
                            cb_ptr)
-    }
-}
-
-unsafe fn from_raw_header(raw_header: *const raw::pcap_pkthdr) -> PacketHeader {
-    let time = libc::timeval {
-        tv_sec: (*raw_header).ts.tv_sec,
-        tv_usec: (*raw_header).ts.tv_usec,
-    };
-    PacketHeader {
-        ts: TimeVal::from(time),
-        len: (*raw_header).len,
     }
 }
 
@@ -341,8 +358,8 @@ unsafe fn from_raw_packet_capture<'a>(raw_packet: *const raw::u_char,
     if raw_packet.is_null() {
         None
     } else {
-        let header = from_raw_header(raw_header);
-        let packet = core::slice::from_raw_parts(raw_packet, header.len as usize);
+        let header: &PacketHeader = mem::transmute(&*raw_header);
+        let packet = core::slice::from_raw_parts(raw_packet, (&*header).len as _);
         Some(PacketCapture {
             header,
             packet,
@@ -350,21 +367,21 @@ unsafe fn from_raw_packet_capture<'a>(raw_packet: *const raw::u_char,
     }
 }
 
-pub fn pcap_next(handle: &CaptureHandle) -> Option<PacketCapture> {
+pub fn pcap_next(handle: &DeviceHandle) -> Option<PacketCapture> {
     unsafe {
         let mut packet_header: raw::pcap_pkthdr = std::mem::zeroed();
-        let packet_ptr = raw::pcap_next(handle.handle as *mut raw::pcap_t, &mut packet_header);
+        let packet_ptr = raw::pcap_next(handle.as_mut_ptr(), &mut packet_header);
         from_raw_packet_capture(packet_ptr, &packet_header)
     }
 }
 
 pub fn pcap_next_ex(
-    handle: &CaptureHandle
+    handle: &DeviceHandle
 ) -> Result<PacketCapture, i32> {
     unsafe {
         let mut packet_ptr: *const raw::u_char = ptr::null_mut();
         let mut packet_header: *mut raw::pcap_pkthdr = ptr::null_mut();
-        match raw::pcap_next_ex(handle.handle as *mut raw::pcap_t, &mut packet_header, &mut packet_ptr) {
+        match raw::pcap_next_ex(handle.as_mut_ptr(), &mut packet_header, &mut packet_ptr) {
             1 => {
                 Ok(from_raw_packet_capture(packet_ptr, packet_header).unwrap())
             }
@@ -375,9 +392,9 @@ pub fn pcap_next_ex(
     }
 }
 
-pub fn pcap_breakloop(handle: &CaptureHandle) {
+pub fn pcap_breakloop(handle: &DeviceHandle) {
     unsafe {
-        raw::pcap_breakloop(handle.handle as *mut raw::pcap_t)
+        raw::pcap_breakloop(handle.as_mut_ptr())
     }
 }
 
@@ -424,16 +441,16 @@ pub fn pcap_strerror(errnum: i32) -> Option<String> {
     }
 }
 
-pub fn pcap_geterr(handle: &CaptureHandle) -> Option<String> {
+pub fn pcap_geterr(handle: &DeviceHandle) -> Option<String> {
     unsafe {
-        from_c_string(raw::pcap_geterr(handle.handle as *mut raw::pcap_t))
+        from_c_string(raw::pcap_geterr(handle.as_mut_ptr()))
     }
 }
 
-pub fn pcap_perror(handle: &CaptureHandle, prefix: &str) {
+pub fn pcap_perror(handle: &DeviceHandle, prefix: &str) {
     let prefix_c = CString::new(prefix).unwrap();
     unsafe {
-        raw::pcap_perror(handle.handle as *mut raw::pcap_t, prefix_c.as_ptr())
+        raw::pcap_perror(handle.as_mut_ptr(), prefix_c.as_ptr())
     }
 }
 
@@ -465,15 +482,15 @@ pub fn pcap_offline_filter(
 ) -> ::std::os::raw::c_int {}
 **/
 
-pub fn pcap_datalink(handle: &CaptureHandle) -> i32 {
+pub fn pcap_datalink(handle: &DeviceHandle) -> i32 {
     unsafe {
-        raw::pcap_datalink(handle.handle as *mut raw::pcap_t)
+        raw::pcap_datalink(handle.as_mut_ptr())
     }
 }
 
-pub fn pcap_datalink_ext(handle: &CaptureHandle) -> i32 {
+pub fn pcap_datalink_ext(handle: &DeviceHandle) -> i32 {
     unsafe {
-        raw::pcap_datalink_ext(handle.handle as *mut raw::pcap_t)
+        raw::pcap_datalink_ext(handle.as_mut_ptr())
     }
 }
 
@@ -513,27 +530,27 @@ pub fn pcap_datalink_val_to_description(
 }
 
 
-pub fn pcap_snapshot(handle: &CaptureHandle) -> i32 {
+pub fn pcap_snapshot(handle: &DeviceHandle) -> i32 {
     unsafe {
-        raw::pcap_snapshot(handle.handle as *mut raw::pcap_t)
+        raw::pcap_snapshot(handle.as_mut_ptr())
     }
 }
 
-pub fn pcap_is_swapped(handle: &CaptureHandle) -> i32 {
+pub fn pcap_is_swapped(handle: &DeviceHandle) -> i32 {
     unsafe {
-        raw::pcap_is_swapped(handle.handle as *mut raw::pcap_t)
+        raw::pcap_is_swapped(handle.as_mut_ptr())
     }
 }
 
-pub fn pcap_major_version(handle: &CaptureHandle) -> i32 {
+pub fn pcap_major_version(handle: &DeviceHandle) -> i32 {
     unsafe {
-        raw::pcap_major_version(handle.handle as *mut raw::pcap_t)
+        raw::pcap_major_version(handle.as_mut_ptr())
     }
 }
 
-pub fn pcap_minor_version(handle: &CaptureHandle) -> i32 {
+pub fn pcap_minor_version(handle: &DeviceHandle) -> i32 {
     unsafe {
-        raw::pcap_minor_version(handle.handle as *mut raw::pcap_t)
+        raw::pcap_minor_version(handle.as_mut_ptr())
     }
 }
 
@@ -542,11 +559,23 @@ pub fn pcap_file(arg1: *mut pcap_t) -> *mut FILE {}
 
 pub fn pcap_fileno(arg1: *mut pcap_t) -> ::std::os::raw::c_int {}
 
+**/
 pub fn pcap_dump_open(
-    arg1: *mut pcap_t,
-    arg2: *const ::std::os::raw::c_char,
-) -> *mut pcap_dumper_t {}
+    handle: &DeviceHandle,
+    fname: &str,
+) -> Result<DumperHandle, String> {
+    let fname_c = CString::new(fname).unwrap();
+    unsafe {
+        let handle_ptr = raw::pcap_dump_open(handle.as_mut_ptr(), fname_c.as_ptr());
+        if handle_ptr.is_null() {
+            Err(pcap_geterr(&handle).unwrap())
+        } else {
+            Ok(DumperHandle { handle: handle_ptr })
+        }
+    }
+}
 
+/**
 pub fn pcap_dump_fopen(arg1: *mut pcap_t, fp: *mut FILE) -> *mut pcap_dumper_t {}
 
 pub fn pcap_dump_open_append(
@@ -560,11 +589,22 @@ pub fn pcap_dump_ftell(arg1: *mut pcap_dumper_t) -> ::std::os::raw::c_long {}
 
 pub fn pcap_dump_flush(arg1: *mut pcap_dumper_t) -> ::std::os::raw::c_int {}
 
-pub fn pcap_dump_close(arg1: *mut pcap_dumper_t) {}
-
-pub fn pcap_dump(arg1: *mut u_char, arg2: *const pcap_pkthdr, arg3: *const u_char) {}
-
 **/
+pub fn pcap_dump_close(dumper: &DumperHandle) {
+    unsafe {
+        raw::pcap_dump_close(dumper.as_mut_ptr())
+    }
+}
+
+
+pub fn pcap_dump(dumper: &DumperHandle, capture: &PacketCapture) {
+    unsafe {
+        raw::pcap_dump(dumper.as_mut_ptr() as _,
+                       mem::transmute(capture.header),
+                       capture.packet.as_ptr())
+    }
+}
+
 
 pub fn pcap_findalldevs() -> Result<Vec<Device>, String> {
     unsafe {
