@@ -1,7 +1,8 @@
-use core::{fmt, mem};
+use core::{fmt, mem, slice};
 use std::{panic, ptr};
 use std::ffi::CStr;
 use std::ffi::CString;
+use std::time::Duration;
 
 use libc;
 use nix::sys::socket::Ipv4Addr;
@@ -175,9 +176,6 @@ pub fn pcap_open_offline(
 
 }
 
-**/
-
-/**
 pub fn pcap_fopen_offline_with_tstamp_precision(
     arg1: *mut FILE,
     arg2: u_int,
@@ -229,75 +227,131 @@ pub fn pcap_create(
 }
 
 
-/**
 pub fn pcap_set_snaplen(
-    arg1: *mut pcap_t,
-    arg2: ::std::os::raw::c_int,
-) -> ::std::os::raw::c_int {}
+    handle: &DeviceHandle,
+    snaplen: i32,
+) -> i32 {
+    unsafe {
+        raw::pcap_set_snaplen(handle.as_mut_ptr(), snaplen)
+    }
+}
 
 pub fn pcap_set_promisc(
-    arg1: *mut pcap_t,
-    arg2: ::std::os::raw::c_int,
-) -> ::std::os::raw::c_int {}
+    handle: &DeviceHandle,
+    promisc: i32,
+) -> i32 {
+    unsafe {
+        raw::pcap_set_promisc(handle.as_mut_ptr(), promisc)
+    }
+}
 
-pub fn pcap_can_set_rfmon(arg1: *mut pcap_t) -> ::std::os::raw::c_int {}
+pub fn pcap_can_set_rfmon(handle: &DeviceHandle) -> i32 {
+    unsafe {
+        raw::pcap_can_set_rfmon(handle.as_mut_ptr())
+    }
+}
 
-pub fn pcap_set_rfmon(arg1: *mut pcap_t, arg2: ::std::os::raw::c_int) -> ::std::os::raw::c_int {}
+pub fn pcap_set_rfmon(handle: &DeviceHandle, rfmon: i32) -> i32 {
+    unsafe {
+        raw::pcap_set_rfmon(handle.as_mut_ptr(), rfmon)
+    }
+}
 
 pub fn pcap_set_timeout(
-    arg1: *mut pcap_t,
-    arg2: ::std::os::raw::c_int,
-) -> ::std::os::raw::c_int {}
+    handle: &DeviceHandle,
+    timeout: Duration,
+) -> i32 {
+    unsafe {
+        raw::pcap_set_timeout(handle.as_mut_ptr(), timeout.as_millis() as _)
+    }
+}
 
 pub fn pcap_set_tstamp_type(
-    arg1: *mut pcap_t,
-    arg2: ::std::os::raw::c_int,
-) -> ::std::os::raw::c_int {}
+    handle: &DeviceHandle,
+    tstamp_type: i32,
+) -> i32 {
+    unsafe {
+        raw::pcap_set_tstamp_type(handle.as_mut_ptr(), tstamp_type)
+    }
+}
 
 pub fn pcap_set_immediate_mode(
-    arg1: *mut pcap_t,
-    arg2: ::std::os::raw::c_int,
-) -> ::std::os::raw::c_int {}
+    handle: &DeviceHandle,
+    immediate_mode: i32,
+) -> i32 {
+    unsafe {
+        raw::pcap_set_immediate_mode(handle.as_mut_ptr(), immediate_mode)
+    }
+}
 
 pub fn pcap_set_buffer_size(
-    arg1: *mut pcap_t,
-    arg2: ::std::os::raw::c_int,
-) -> ::std::os::raw::c_int {}
+    handle: &DeviceHandle,
+    buffer_size: i32,
+) -> i32 {
+    unsafe {
+        raw::pcap_set_buffer_size(handle.as_mut_ptr(), buffer_size)
+    }
+}
+
 
 pub fn pcap_set_tstamp_precision(
-    arg1: *mut pcap_t,
-    arg2: ::std::os::raw::c_int,
-) -> ::std::os::raw::c_int {}
+    handle: &DeviceHandle,
+    tstamp_precision: i32,
+) -> i32 {
+    unsafe {
+        raw::pcap_set_tstamp_precision(handle.as_mut_ptr(), tstamp_precision)
+    }
+}
 
-pub fn pcap_get_tstamp_precision(arg1: *mut pcap_t) -> ::std::os::raw::c_int {}
-**/
+pub fn pcap_get_tstamp_precision(handle: &DeviceHandle) -> i32 {
+    unsafe {
+        raw::pcap_get_tstamp_precision(handle.as_mut_ptr())
+    }
+}
+
+
 pub fn pcap_activate(handle: &DeviceHandle) -> i32 {
     unsafe {
         raw::pcap_activate(handle.as_mut_ptr())
     }
 }
 
+pub fn pcap_list_tstamp_types(handle: &DeviceHandle) -> Result<Vec<i32>, String> {
+    let mut tstamp_types_ptr: *mut ::std::os::raw::c_int = ptr::null_mut();
+    unsafe {
+        let count = raw::pcap_list_tstamp_types(handle.as_mut_ptr(), &mut tstamp_types_ptr);
+        if count == raw::PCAP_ERROR {
+            return Err(pcap_geterr(handle).unwrap());
+        }
+        let tstamp_types: &[i32] = slice::from_raw_parts(tstamp_types_ptr, count as usize);
+        raw::pcap_free_tstamp_types(tstamp_types_ptr);
+        Result::Ok(Vec::from(tstamp_types))
+    }
+}
+
 /**
-pub fn pcap_list_tstamp_types(
-    arg1: *mut pcap_t,
-    arg2: *mut *mut ::std::os::raw::c_int,
-) -> ::std::os::raw::c_int {}
-
 pub fn pcap_free_tstamp_types(arg1: *mut ::std::os::raw::c_int) {}
-
-pub fn pcap_tstamp_type_name_to_val(
-    arg1: *const ::std::os::raw::c_char,
-) -> ::std::os::raw::c_int {}
-
-pub fn pcap_tstamp_type_val_to_name(
-    arg1: ::std::os::raw::c_int,
-) -> *const ::std::os::raw::c_char {}
-
-pub fn pcap_tstamp_type_val_to_description(
-    arg1: ::std::os::raw::c_int,
-) -> *const ::std::os::raw::c_char {}
-
 **/
+pub fn pcap_tstamp_type_name_to_val(name: &str) -> i32 {
+    let name_c = CString::new(name).unwrap();
+    unsafe {
+        raw::pcap_tstamp_type_name_to_val(name_c.as_ptr())
+    }
+}
+
+pub fn pcap_tstamp_type_val_to_name(val: i32) -> Option<String> {
+    unsafe {
+        from_c_string(raw::pcap_tstamp_type_val_to_name(val))
+    }
+}
+
+pub fn pcap_tstamp_type_val_to_description(val: i32) -> Option<String> {
+    unsafe {
+        from_c_string(raw::pcap_tstamp_type_val_to_description(val))
+    }
+}
+
+
 pub fn pcap_open_live(
     device: &str,
     snaplen: i32,
